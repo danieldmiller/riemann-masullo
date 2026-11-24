@@ -290,6 +290,406 @@ theorem relativeIntegralIdeleUnits_isCompact :
 -- two theta spaces as quotients by the theta kernels. Remark 5.2.3.4 concerns
 -- the separate comparison with closures of principal translation differences.
 
+section TransitionInvariants
+
+open scoped Classical TensorProduct
+open TensorProduct
+
+local notation "B(" A ")" => SchwartzBruhat (Multiplicative (SAdeleRing F A))
+local notation "D" => ↥(T \ S)
+local notation "q(" A ")" => (LinearMap.ker (sLocalAdelicTheta F A)).mkQ
+local notation "H" => relativeIntegralIdeleUnits F S T
+local notation "Γ" => WithZero (Multiplicative ℤ)
+
+/-- A fixed class has a fixed lift when the orbit of a representative is finite. -/
+private theorem fixedLift_of_finite_orbit {G E Q : Type*} [Group G] [AddCommGroup E] [Module ℂ E]
+    [AddCommGroup Q] [Module ℂ Q] (r : G →* Module.End ℂ E) (q : E →ₗ[ℂ] Q) (f : E)
+    (hf : (Set.range fun g ↦ r g f).Finite) (h : ∀ g, q (r g f) = q f) :
+    ∃ a : E, q a = q f ∧ ∀ g, r g a = a := by
+  classical
+  let O := hf.toFinset
+  have hO : O.Nonempty := ⟨r 1 f, hf.mem_toFinset.mpr ⟨1, rfl⟩⟩
+  have hn : (O.card : ℂ) ≠ 0 := by exact_mod_cast hO.card_ne_zero
+  refine ⟨(O.card : ℂ)⁻¹ • ∑ a ∈ O, a, ?_, fun g ↦ ?_⟩
+  · rw [map_smul, map_sum, Finset.sum_congr rfl (g := fun _ ↦ q f) (fun a ha ↦ ?_),
+      Finset.sum_const, ← Nat.cast_smul_eq_nsmul ℂ, smul_smul, inv_mul_cancel₀ hn, one_smul]
+    obtain ⟨g, rfl⟩ := hf.mem_toFinset.mp ha
+    exact h g
+  · -- Each group element permutes the orbit (cf. Ch05 §2, sum_orbit_invariant).
+    have he (a b : G) (x : E) : r (a * b) x = r a (r b x) := DFunLike.congr_fun (r.map_mul a b) x
+    have hc (a : G) (x : E) (hx : x ∈ O) : r a x ∈ O := by
+      obtain ⟨b, rfl⟩ := hf.mem_toFinset.mp hx
+      exact hf.mem_toFinset.mpr ⟨a*b, he _ _ _⟩
+    have hi (a : G) (x : E) : r a⁻¹ (r a x) = x := by rw [← he, inv_mul_cancel, map_one]; rfl
+    rw [map_smul, map_sum]
+    congr 1
+    exact Finset.sum_bij' (fun a _ ↦ r g a) (fun a _ ↦ r g⁻¹ a)
+      (fun a ha ↦ hc _ _ ha) (fun a ha ↦ hc _ _ ha) (fun a _ ↦ hi g a)
+      (fun a _ ↦ by simp [← he]) (fun _ _ ↦ rfl)
+
+private theorem prod_old_new {ι : Type*} {S T : Finset ι} (hST : S ⊆ T) (c : T → ℂ) :
+    ∏ w, c w = (∏ w : S, c ⟨w.val, hST w.property⟩) *
+      ∏ w : ↥(T \ S), c ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩ := by
+  let f (v : ι) := if h : v ∈ T then c ⟨v, h⟩ else 1
+  have h := (Finset.prod_sdiff (f := f) hST).symm
+  rw [mul_comm, ← Finset.prod_coe_sort S f, ← Finset.prod_coe_sort (T \ S) f,
+    ← Finset.prod_coe_sort T f] at h
+  have hf (w : T) : f w.val = c w := dite_eq_left w.property
+  exact (Finset.prod_congr rfl fun w _ ↦ (hf w).symm).trans (h.trans
+    (congrArg₂ (· * ·) (Finset.prod_congr rfl fun w _ ↦ hf ⟨w.val, hST w.property⟩)
+      (Finset.prod_congr rfl fun w _ ↦ hf ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩)))
+
+/-- To test membership in a submodule of the enlarged space, it suffices to test
+products of one old test and one local test at each new place. -/
+private theorem relativeUnit_pure_induction (hST : S ⊆ T) (N : Submodule ℂ B(T))
+    (hpure : ∀ (a : B(S)) (φ : ∀ w : D, ℬᵥ(w.val)) (b : B(T)),
+      (∀ x : SAdeleRing F T, b (Multiplicative.ofAdd x) =
+        a (Multiplicative.ofAdd (x.1, fun w : S ↦ x.2 ⟨w.val, hST w.property⟩)) *
+          ∏ w : D, φ w (Multiplicative.ofAdd (x.2 ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩))) →
+      b ∈ N) (b : B(T)) : b ∈ N := by
+  let A := ℬ(InfiniteAdeleRing F)
+  let V := FinestLocallyConvex (⨂[ℂ] w : T, ℬᵥ(w.val))
+  obtain ⟨e, he⟩ := sAdeleSchwartz_inductiveTensor_equiv F T
+  obtain ⟨eS, heS⟩ := sAdeleSchwartz_inductiveTensor_equiv F S
+  obtain ⟨t, rfl⟩ := e.surjective b
+  refine TensorProduct.inductionOn (motive := fun t ↦ e t ∈ N) t ?_
+    (fun _ _ h₁ h₂ ↦ (N.comap e.toLinearMap).add_mem h₁ h₂)
+  intro a v
+  let L : V →ₗ[ℂ] B(T) := e.toLinearMap.comp (TensorProduct.mk ℂ A V a)
+  refine PiTensorProduct.induction_on (motive := fun v ↦ L v ∈ N) v ?_
+    (fun _ _ h₁ h₂ ↦ (N.comap L).add_mem h₁ h₂)
+  intro r φ
+  apply (N.comap L).smul_mem r
+  let i (w : S) : T := ⟨w.val, hST w.property⟩
+  let j (w : D) : T := ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩
+  let aS := eS (a ⊗ₜ[ℂ] (⨂ₜ[ℂ] w, φ (i w)))
+  refine hpure aS (fun w ↦ φ (j w)) (e (a ⊗ₜ[ℂ] (⨂ₜ[ℂ] w, φ w))) fun x ↦ ?_
+  let xS : SAdeleRing F S := (x.1, fun w ↦ x.2 (i w))
+  let c (w : T) := φ w (Multiplicative.ofAdd (x.2 w))
+  have hS := heS a (fun w ↦ φ (i w)) xS
+  calc
+    _ = a (Multiplicative.ofAdd x.1) * ∏ w, c w := he a φ x
+    _ = _ := ((congrArg (a (Multiplicative.ofAdd x.1) * ·) (prod_old_new hST c)).trans
+      (mul_assoc _ _ _).symm).trans (congrArg (· * ∏ w : D, c (j w)) hS.symm)
+
+/-- Relative units only translate the new finite factors, where each test has finite orbit. -/
+private theorem relativeUnit_finite_orbit (hST : S ⊆ T) (f : B(T)) :
+    (range fun g : H ↦ schwartzBruhatUnitTranslate g.val f).Finite := by
+  let r := (unitTranslateEnd (R := SAdeleRing F T)).comp (relativeIntegralIdeleUnits F S T).subtype
+  let N : Submodule ℂ B(T) :=
+    { carrier := {f | (range fun g : H ↦ r g f).Finite}
+      zero_mem' := by simp
+      add_mem' := fun {a b} ha hb ↦ (ha.image2 (· + ·) hb).subset <| by
+        rintro _ ⟨g, rfl⟩
+        exact ⟨_, ⟨g, rfl⟩, _, ⟨g, rfl⟩, ((r g).map_add a b).symm⟩
+      smul_mem' := fun c a ha ↦ (ha.image (c • ·)).subset <| by
+        rintro _ ⟨g, rfl⟩
+        exact ⟨_, ⟨g, rfl⟩, ((r g).map_smul c a).symm⟩ }
+  refine relativeUnit_pure_induction hST N (fun a φ b hb ↦ ?_) f
+  let O (w : D) := (finitePlaceSchwartz_average_dilation w.val (φ w)).choose
+  have hO (w : D) := (finitePlaceSchwartz_average_dilation w.val (φ w)).choose_spec.1
+  let j (w : D) : T := ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩
+  let toFun (ψ : ∀ w : D, ↥(O w)) (x : SAdeleRing F T) :=
+    a (Multiplicative.ofAdd (x.1, fun w : S ↦ x.2 ⟨w.val, hST w.property⟩)) *
+      ∏ w : D, (ψ w).val (Multiplicative.ofAdd (x.2 (j w)))
+  let ev (b : B(T)) (x : SAdeleRing F T) := b (Multiplicative.ofAdd x)
+  apply Set.Finite.of_finite_image (f := ev) _ (fun _ _ _ _ h ↦ SchwartzBruhat.ext fun x ↦ congrFun h x.toAdd)
+  refine (Set.finite_range toFun).subset ?_
+  rintro _ ⟨_, ⟨g, rfl⟩, rfl⟩
+  have h := (mem_relativeIntegralIdeleUnits_iff g.val).mp g.property
+  have hi := (mem_relativeIntegralIdeleUnits_iff (g⁻¹ : H).val).mp (g⁻¹ : H).property
+  let u (w : D) := Units.map ((Pi.evalRingHom (fun t : T ↦ L(t.val)) (j w)).comp
+    (RingHom.snd _ _)).toMonoidHom g.val
+  have hu (w : D) : u w ∈ U(w.val) := h.2.2 (j w) (Finset.mem_sdiff.mp w.property).2
+  refine ⟨fun w ↦ ⟨_, (hO w _).mpr ⟨⟨u w, hu w⟩, rfl⟩⟩, funext fun x ↦ ?_⟩
+  change _ = b (Multiplicative.ofAdd (g.val.inv * x))
+  rw [hb]
+  have hold : ((g.val.inv * x).1, fun w : S ↦ (g.val.inv * x).2 ⟨w.val, hST w.property⟩) =
+      (x.1, fun w : S ↦ x.2 ⟨w.val, hST w.property⟩) :=
+    Prod.ext ((congrArg (· * x.1) hi.1).trans (one_mul _)) (funext fun w ↦
+      (congrArg (· * _) (hi.2.1 ⟨w.val, hST w.property⟩ w.property)).trans (one_mul _))
+  rw [hold]
+  rfl
+
+/-- Prescribing integral-unit cosets at the additional places amounts to choosing a T-unit. -/
+private theorem relativeUnit_choose_diagonal (hST : S ⊆ T)
+    (hPic : Subsingleton (CommRing.Pic ((S : Set Places).integer F))) (k : D → ℤ) :
+    ∃ a : (T : Set Places).unit F, ∀ w : D,
+      Valued.v (algebraMap F (L(w.val)) a.val.val) = WithZero.exp (k w) := by
+  obtain ⟨j, hj, -⟩ := picard_localization_exact F S T hST
+  have ex (w : D) : ∃ u : (L(w.val))ˣ, Valued.v u.val = WithZero.exp (k w) := by
+    obtain ⟨x, hx⟩ := w.val.valuedAdicCompletion_surjective F (WithZero.exp (k w))
+    exact ⟨Units.mk0 x (fun hz ↦ WithZero.exp_ne_zero (hx.symm.trans (hz ▸ map_zero _))), hx⟩
+  choose u hu using ex
+  have h : (QuotientGroup.mk (fun w ↦ QuotientGroup.mk (u w)) :
+      _ ⧸ (sUnitLocalClasses F T (T \ S)).range) = 1 := hj ((hPic.elim _ _).trans (map_one j).symm)
+  obtain ⟨a, ha⟩ := (QuotientGroup.eq_one_iff _).mp h
+  refine ⟨a, fun w ↦ ?_⟩
+  have hq := congrFun ha w
+  change (QuotientGroup.mk _ : _ ⧸ _) = QuotientGroup.mk (u w) at hq
+  have hv := HeightOneSpectrum.adicCompletionIntegers.mem_units_iff_valued_eq_one.mp
+    (QuotientGroup.eq.mp hq)
+  rw [Units.val_mul, Units.val_inv_eq_inv_val, map_mul, map_inv₀] at hv
+  exact ((inv_mul_eq_one₀ (by simp)).mp hv).trans (hu w)
+
+/-- The two consecutive balls differ by the shell of their larger radius. -/
+private theorem valuation_shell_step (z : Γ) (n : ℤ) :
+    (if z ≤ WithZero.exp n then (1 : ℂ) else 0) -
+      (if z ≤ WithZero.exp (n-1) then 1 else 0) = if z = WithZero.exp n then 1 else 0 := by
+  rcases eq_or_ne z 0 with rfl | hz
+  · simp [Ne.symm WithZero.exp_ne_zero]
+  · obtain ⟨m, rfl⟩ : ∃ m : ℤ, z = WithZero.exp m := ⟨z.log, (WithZero.exp_log hz).symm⟩
+    simp only [WithZero.exp_le_exp, WithZero.exp_inj]
+    split_ifs <;> first | (exfalso; omega) | norm_num
+
+/-- Sample a local test once per valuation. After removing its constant value near zero,
+only finitely many shells contribute and each shell is the difference of two balls. -/
+private theorem sampled_local_test (w : Places) (s : Γ → L(w))
+    (hs : ∀ z, Valued.v (s z) = z) (f : ℬᵥ(w)) :
+    ∃ c : ℤ →₀ ℂ, ∀ z : Γ, f (Multiplicative.ofAdd (s z)) =
+      ∑ n ∈ c.support, c n * (if z ≤ WithZero.exp n then 1 else 0) := by
+  let φ (x : L(w)) := f (Multiplicative.ofAdd x)
+  obtain ⟨hl, hc⟩ := (mem_finitePlaceSchwartz_iff F w φ).mp ⟨f, fun _ ↦ rfl⟩
+  let ball (n : ℤ) (z : Γ) : ℂ := if z ≤ WithZero.exp n then 1 else 0
+  let d (z : Γ) := φ (s z) - φ 0 * ball 0 z
+  let C := (tsupport φ ∪ (O(w) : Set (L(w)))) \ ((O(w) : Set (L(w))) ∩ φ ⁻¹' {φ 0})
+  have hC : IsCompact C := (hc.union (isCompact_iff_compactSpace.mpr
+    (compactSpace_adicCompletionIntegers w))).diff
+      ((Valued.isOpen_valuationSubring (L(w))).inter (hl.isOpen_fiber _))
+  have h0 : (0 : L(w)) ∉ C := fun h ↦ h.2 ⟨zero_mem _, rfl⟩
+  let : CompactSpace C := isCompact_iff_compactSpace.mp hC
+  have hfin : (range fun x : C ↦ Valued.v x.val).Finite := by
+    apply IsLocallyConstant.range_finite
+    refine (IsLocallyConstant.iff_eventually_eq _).mpr fun x ↦ ?_
+    exact continuous_subtype_val.continuousAt
+      (Valued.locally_const ((Valuation.ne_zero_iff (Valued.v : Valuation (L(w)) Γ)).mpr fun hx ↦ h0 (hx ▸ x.property)))
+  have hd (z : Γ) (hz : d z ≠ 0) : s z ∈ C := by
+    have hb : s z ∈ O(w) ↔ z ≤ WithZero.exp (0 : ℤ) := by
+      rw [HeightOneSpectrum.mem_adicCompletionIntegers, hs, WithZero.exp_zero]
+    by_cases h : s z ∈ O(w)
+    · refine ⟨Or.inr h, fun ht ↦ hz ?_⟩
+      change φ (s z) - φ 0 * (if z ≤ WithZero.exp 0 then 1 else 0) = 0
+      rw [ite_eq_left (hb.mp h), mul_one, show φ (s z) = φ 0 from ht.2, sub_self]
+    · refine ⟨Or.inl (subset_tsupport _ ?_), fun ht ↦ h ht.1⟩
+      intro hzero
+      exact hz (by simp only [d, ball, ite_eq_right (mt hb.mpr h), hzero, mul_zero, sub_zero])
+  let M := Submodule.span ℂ (range ball)
+  have hball (n : ℤ) : ball n ∈ M := Submodule.subset_span (mem_range_self n)
+  have hdM : d ∈ M := by
+    have hf : (support d).Finite := hfin.subset fun z hz ↦ ⟨⟨s z, hd z hz⟩, hs z⟩
+    have hde : d = ∑ z ∈ hf.toFinset, d z • (fun y : Γ ↦ if y = z then (1 : ℂ) else 0) := by
+      funext y
+      simp only [Finset.sum_apply, Pi.smul_apply, smul_eq_mul, mul_ite, mul_one, mul_zero]
+      rw [Finset.sum_ite_eq]
+      by_cases hy : y ∈ hf.toFinset
+      · rw [ite_eq_left hy]
+      · exact (notMem_support.mp (hf.mem_toFinset.not.mp hy)).trans (ite_eq_right hy).symm
+    rw [hde]
+    refine M.sum_mem fun z hz ↦ M.smul_mem _ ?_
+    have hz' : z ≠ 0 := fun he ↦ h0 ((Valuation.zero_iff (Valued.v : Valuation (L(w)) Γ)).mp ((hs z).trans he) ▸
+      hd z (hf.mem_toFinset.mp hz))
+    have he : (fun y : Γ ↦ if y = z then (1 : ℂ) else 0) = ball z.log - ball (z.log - 1) := by
+      funext y
+      exact ((valuation_shell_step y z.log).trans (by rw [WithZero.exp_log hz'])).symm
+    exact he ▸ M.sub_mem (hball _) (hball _)
+  have hφ : (fun z ↦ φ (s z)) ∈ M := by
+    have he : (fun z ↦ φ (s z)) = d + φ 0 • ball 0 := funext fun z ↦ (sub_add_cancel _ _).symm
+    exact he ▸ M.add_mem hdM (M.smul_mem _ (hball _))
+  obtain ⟨c, he⟩ := Finsupp.mem_span_range_iff_exists_finsupp.mp hφ
+  exact ⟨c, fun z ↦ (congrFun he z).symm.trans (by simp [Finsupp.sum, Finset.sum_apply, ball])⟩
+
+/-- A rectangle of valuation balls times an old test is a principal translate of an
+insertion, with the old coordinates of that translation absorbed into the old test. -/
+private theorem relativeUnit_box (hST : S ⊆ T)
+    (hPic : Subsingleton (CommRing.Pic ((S : Set Places).integer F))) (k : D → ℤ) (f : B(S)) :
+    ∃ b : B(T), q(T) b ∈ (sLocalThetaTransition (F := F) hST).range ∧
+      ∀ x : SAdeleRing F T, b (Multiplicative.ofAdd x) =
+        f (Multiplicative.ofAdd (x.1, fun w : S ↦ x.2 ⟨w.val, hST w.property⟩)) *
+          ∏ w : D, (if Valued.v (x.2 ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩) ≤
+            WithZero.exp (k w) then 1 else 0) := by
+  obtain ⟨a, ha⟩ := relativeUnit_choose_diagonal hST hPic k
+  let δ (U : Finset Places) := Units.map (algebraMap F (SAdeleRing F U)).toMonoidHom a.val
+  let f' := schwartzBruhatUnitTranslate (δ S)⁻¹ f
+  let b := sAdeleSchwartzTransition F hST f'
+  refine ⟨schwartzBruhatUnitTranslate (δ T) b, ⟨q(S) f', ?_⟩, fun x ↦ ?_⟩
+  · have hd : (QuotientGroup.mk (δ T) : SIdeleQuotient F T) = 1 :=
+      (sIdeleQuotient_mk_eq_one F T _).mpr ⟨Set.unitEquivUnitsInteger _ _ a, Units.ext rfl⟩
+    have he := (existsUnique_sLocalThetaAction (F := F) (S := T)).exists.choose_spec.2 (δ T) b
+    rw [hd, map_one] at he
+    have ht := LinearMap.congr_fun (sLocalThetaTransition_unique (F := F) hST).1 f'
+    change q(T) b = q(T) (schwartzBruhatUnitTranslate (δ T) b) at he
+    change (sLocalThetaTransition (F := F) hST) (q(S) f') = q(T) b at ht
+    exact ht.trans he
+  · let r : SAdeleRing F T →+* SAdeleRing F S := (RingHom.fst _ _).prod
+      (RingHom.pi fun w : S ↦ (Pi.evalRingHom (fun v : T ↦ L(v.val))
+        ⟨w.val, hST w.property⟩).comp (RingHom.snd _ _))
+    let z := (δ T).inv * x
+    have hold : (δ S).val * (z.1, fun w : S ↦ z.2 ⟨w.val, hST w.property⟩) =
+        (x.1, fun w : S ↦ x.2 ⟨w.val, hST w.property⟩) := by
+      change (δ S).val * r z = r x
+      rw [show r z = r (δ T).inv * r x from r.map_mul _ _,
+        show r (δ T).inv = (δ S).inv from rfl, ← mul_assoc, Units.val_inv, one_mul]
+    have hf : f' (Multiplicative.ofAdd (z.1, fun w : S ↦ z.2 ⟨w.val, hST w.property⟩)) =
+        f (Multiplicative.ofAdd (x.1, fun w : S ↦ x.2 ⟨w.val, hST w.property⟩)) :=
+      congrArg (fun y ↦ f (Multiplicative.ofAdd y)) hold
+    have hc (w : D) : z.2 ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩ ∈ O(w.val) ↔
+        Valued.v (x.2 ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩) ≤ WithZero.exp (k w) := by
+      let v : T := ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩
+      change Valued.v ((algebraMap F (L(w.val)) (↑a.val⁻¹ : F)) * x.2 v) ≤ 1 ↔ _
+      rw [Units.val_inv_eq_inv_val, map_inv₀, map_mul, map_inv₀, ha w, inv_mul_le_iff₀
+        WithZero.exp_pos, mul_one]
+    have hcond : (∀ w : T, w.val ∉ S → z.2 w ∈ O(w.val)) ↔
+        ∀ w : D, Valued.v (x.2 ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩) ≤ WithZero.exp (k w) :=
+      ⟨fun h w ↦ (hc w).mp (h ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩ (Finset.mem_sdiff.mp w.property).2),
+        fun h w hw ↦ (hc ⟨w.val, Finset.mem_sdiff.mpr ⟨w.property, hw⟩⟩).mpr
+          (h ⟨w.val, Finset.mem_sdiff.mpr ⟨w.property, hw⟩⟩)⟩
+    change b (Multiplicative.ofAdd z) = _
+    rw [sAdeleSchwartzTransition_apply, hf, Fintype.prod_ite_zero, Finset.prod_const_one]
+    exact (if_congr hcond rfl rfl).trans (by split_ifs <;> simp)
+
+/-- Two elements of the same valuation are related by a local integral unit,
+including the zero fiber. -/
+private theorem integralUnit_of_valuation_eq (w : Places) (x y : L(w))
+    (h : Valued.v y = Valued.v x) :
+    ∃ u : (L(w))ˣ, u ∈ U(w) ∧ u.val * x = y := by
+  by_cases hx : x = 0
+  · subst x
+    have hy : y = 0 := (Valuation.zero_iff _).mp (h.trans (map_zero _))
+    exact ⟨1, one_mem _, by simp [hy]⟩
+  · have hy : y ≠ 0 := fun hy ↦ hx ((Valuation.zero_iff _).mp (h.symm.trans (hy ▸ map_zero _)))
+    let u := Units.mk0 y hy / Units.mk0 x hx
+    refine ⟨u, HeightOneSpectrum.adicCompletionIntegers.mem_units_iff_valued_eq_one.mpr ?_,
+      div_mul_cancel₀ _ hx⟩
+    change Valued.v (y / x) = 1
+    rw [map_div₀, h, div_self ((Valuation.ne_zero_iff _).mpr hx)]
+
+/-- Choose an element of each relative-unit orbit having prescribed samples in its
+new coordinates. Multiplication by the selected unit fixes the old coordinates. -/
+private theorem relativeUnit_sample (hST : S ⊆ T) (s : ∀ w : Places, Γ → L(w))
+    (hs : ∀ w z, Valued.v (s w z) = z) (x : SAdeleRing F T) :
+    ∃ g : H, let y := g.val.val * x
+      (y.1, fun w : S ↦ y.2 ⟨w.val, hST w.property⟩) =
+        (x.1, fun w : S ↦ x.2 ⟨w.val, hST w.property⟩) ∧
+      ∀ w : D, let v : T := ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩
+        y.2 v = s w.val (Valued.v (x.2 v)) := by
+  choose u hu hux using fun w : T ↦ integralUnit_of_valuation_eq w.val (x.2 w) _
+    (hs w.val (Valued.v (x.2 w)))
+  let t (w : T) : (L(w.val))ˣ := if w.val ∈ S then 1 else u w
+  let g : (SAdeleRing F T)ˣ :=
+    (ContinuousMulEquiv.prodUnits _ _).symm ((1 : (InfiniteAdeleRing F)ˣ),
+      (ContinuousMulEquiv.piUnits (M := fun w : T ↦ L(w.val))).symm t)
+  have hold (w : T) (hw : w.val ∈ S) : g.val.2 w = 1 :=
+    congrArg Units.val (ite_eq_left (t := 1) (e := u w) hw)
+  have hnew (w : T) (hw : w.val ∉ S) : t w = u w := ite_eq_right hw
+  have hg : g ∈ H := (mem_relativeIntegralIdeleUnits_iff g).mpr ⟨rfl, hold, fun w hw ↦ by
+    have ht : t w ∈ U(w.val) := hnew w hw ▸ hu w
+    exact ht⟩
+  refine ⟨⟨g, hg⟩, Prod.ext (one_mul _) (funext fun w ↦ ?_), fun w ↦ ?_⟩
+  · exact (congrArg (· * _) (hold ⟨w.val, hST w.property⟩ w.property)).trans (one_mul _)
+  · let v : T := ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩
+    change (t v).val * x.2 v = _
+    rw [hnew v (Finset.mem_sdiff.mp w.property).2]
+    exact hux v
+
+/-- Expand a product of finite sums of ball indicators in the function space. -/
+private theorem sampled_product_mem {I X : Type*} [Fintype I] (M : Submodule ℂ (X → ℂ))
+    (a : X → ℂ) (b : I → X → ℂ) (B : I → ℤ → X → ℂ)
+    (hb : ∀ i, ∃ c : ℤ →₀ ℂ, ∀ x, b i x = ∑ n ∈ c.support, c n * B i n x)
+    (hB : ∀ n : I → ℤ, (fun x ↦ a x * ∏ i, B i (n i) x) ∈ M) :
+    (fun x ↦ a x * ∏ i, b i x) ∈ M := by
+  classical
+  choose c hc using hb
+  let P := Fintype.piFinset fun i ↦ (c i).support
+  have h := M.sum_mem (t := P) fun n _ ↦ M.smul_mem (∏ i, c i (n i)) (hB n)
+  refine (show (∑ n ∈ P, (∏ i, c i (n i)) • (fun x ↦ a x * ∏ i, B i (n i) x)) =
+      (fun x ↦ a x * ∏ i, b i x) from ?_) ▸ h
+  funext x
+  simp only [Finset.sum_apply, Pi.smul_apply, smul_eq_mul, hc, Finset.prod_univ_sum, Finset.mul_sum,
+    Finset.prod_mul_distrib]
+  exact Finset.sum_congr rfl fun _ _ ↦ mul_left_comm _ _ _
+
+/-- The sampled values of any test belong to the function space generated by boxes.
+Use the algebraic tensor decomposition first on the old and new places, then at each new place. -/
+private theorem relativeUnit_sampled_mem (hST : S ⊆ T) (s : ∀ w : Places, Γ → L(w))
+    (hs : ∀ w z, Valued.v (s w z) = z) (y : SAdeleRing F T → SAdeleRing F T)
+    (hold : ∀ x, ((y x).1, fun w : S ↦ (y x).2 ⟨w.val, hST w.property⟩) =
+      (x.1, fun w : S ↦ x.2 ⟨w.val, hST w.property⟩))
+    (hnew : ∀ x (w : D), let v : T := ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩
+      (y x).2 v = s w.val (Valued.v (x.2 v)))
+    (M : Submodule ℂ (SAdeleRing F T → ℂ))
+    (hbox : ∀ (f : B(S)) (k : D → ℤ),
+      (fun x : SAdeleRing F T ↦ f (Multiplicative.ofAdd (x.1, fun w : S ↦ x.2 ⟨w.val, hST w.property⟩)) *
+        ∏ w : D, (if Valued.v (x.2 ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩) ≤
+          WithZero.exp (k w) then 1 else 0)) ∈ M)
+    (f : B(T)) : (fun x ↦ f (Multiplicative.ofAdd (y x))) ∈ M := by
+  let ev : B(T) →ₗ[ℂ] (SAdeleRing F T → ℂ) :=
+    { toFun := fun f x ↦ f (Multiplicative.ofAdd (y x)), map_add' := fun _ _ ↦ rfl,
+      map_smul' := fun _ _ ↦ rfl }
+  refine relativeUnit_pure_induction hST (M.comap ev) (fun a φ b hb ↦ ?_) f
+  let j (w : D) : T := ⟨w.val, (Finset.mem_sdiff.mp w.property).1⟩
+  let old (x : SAdeleRing F T) := a (Multiplicative.ofAdd (x.1, fun w : S ↦ x.2 ⟨w.val, hST w.property⟩))
+  let v (w : D) (x : SAdeleRing F T) := Valued.v (x.2 (j w))
+  let tail (w : D) (x : SAdeleRing F T) := φ w (Multiplicative.ofAdd (s w.val (v w x)))
+  let ball (w : D) (n : ℤ) (x : SAdeleRing F T) : ℂ := if v w x ≤ WithZero.exp n then 1 else 0
+  have heq : ev b = (fun x ↦ old x * ∏ w, tail w x) := by
+    funext x
+    change b (Multiplicative.ofAdd (y x)) = _
+    rw [hb, hold x]
+    exact congrArg (old x * ·) (Finset.prod_congr rfl fun w _ ↦
+      congrArg (fun z ↦ φ w (Multiplicative.ofAdd z)) (hnew x w))
+  change ev b ∈ M
+  rw [heq]
+  refine sampled_product_mem M old tail ball (fun w ↦ ?_) (hbox a)
+  obtain ⟨c, hc⟩ := sampled_local_test w.val (s w.val) (hs w.val) (φ w)
+  exact ⟨c, fun x ↦ hc (v w x)⟩
+
+/-- A test fixed by the relative units descends in the theta quotient. -/
+private theorem relativeUnit_descent (hST : S ⊆ T)
+    (hPic : Subsingleton (CommRing.Pic ((S : Set Places).integer F))) (f : B(T))
+    (hf : ∀ g : H, schwartzBruhatUnitTranslate g.val f = f) :
+    q(T) f ∈ (sLocalThetaTransition (F := F) hST).range := by
+  let s (w : Places) := Function.surjInv (w.valuedAdicCompletion_surjective F)
+  have hs (w : Places) (z : Γ) : Valued.v (s w z) = z :=
+    Function.rightInverse_surjInv _ _
+  choose g hg using relativeUnit_sample hST s hs
+  let y (x : SAdeleRing F T) := (g x).val.val * x
+  let ev : B(T) →ₗ[ℂ] (SAdeleRing F T → ℂ) :=
+    { toFun := fun b x ↦ b (Multiplicative.ofAdd x), map_add' := fun _ _ ↦ rfl,
+      map_smul' := fun _ _ ↦ rfl }
+  let M := (((sLocalThetaTransition (F := F) hST).range).comap q(T)).map ev
+  have hmem := relativeUnit_sampled_mem hST s hs y (fun x ↦ (hg x).1)
+    (fun x ↦ (hg x).2) M (fun a k ↦ ?_) f
+  · have hfix : (fun x ↦ f (Multiplicative.ofAdd (y x))) = ev f := funext fun x ↦
+      congrArg (fun b : B(T) ↦ b (Multiplicative.ofAdd x)) (hf (g x)⁻¹)
+    obtain ⟨b, hb, hbf⟩ := hfix ▸ hmem
+    have he : b = f := SchwartzBruhat.ext fun x ↦ congrFun hbf x.toAdd
+    exact he ▸ hb
+  · obtain ⟨b, hb, hval⟩ := relativeUnit_box hST hPic k a
+    exact ⟨b, hb, funext hval⟩
+
+/-- Relative-unit equivariance of the transition on arbitrary quotient classes. -/
+private theorem relativeUnit_fixes_transition (hST : S ⊆ T) (y : Θₛ(S)) (g : H) :
+    let ρ := (existsUnique_sLocalThetaAction (F := F) (S := T)).exists.choose
+    ρ (QuotientGroup.mk g.val) (sLocalThetaTransition hST y) = sLocalThetaTransition hST y := by
+  obtain ⟨a, ha, hg⟩ := g.property
+  obtain ⟨u, rfl⟩ := ha.1
+  obtain ⟨f, rfl⟩ := (LinearMap.ker (sLocalAdelicTheta F S)).mkQ_surjective y
+  let z := integralIdeleInsertion F S u
+  have hS : Units.map (adeleProjection F S).toMonoidHom z = 1 := ha.2
+  have he := sLocalThetaTransition_equivariant hST u f
+  have htrans : schwartzBruhatUnitTranslate (1 : (SAdeleRing F S)ˣ) f = f :=
+    DFunLike.congr_fun (map_one (unitTranslateEnd (R := SAdeleRing F S))) f
+  dsimp only at he
+  rw [hS, htrans, hg] at he
+  have ht := LinearMap.congr_fun (sLocalThetaTransition_unique (F := F) hST).1 f
+  have hρ := (existsUnique_sLocalThetaAction (F := F) (S := T)).exists.choose_spec.2 g.val
+    (sAdeleSchwartzTransition F hST f)
+  change (sLocalThetaTransition (F := F) hST) (q(S) f) = q(T) (sAdeleSchwartzTransition F hST f) at ht
+  rw [ht]
+  exact hρ.trans (he.symm.trans ht)
+
+end TransitionInvariants
+
 /-- Paper: Theorem 6.1.2.1(1), p. 288.
 When the S-integers have trivial Picard group, the range of the transition is the fixed
 subspace for the relative integral units in the T-local theta quotient of (5.1.1.3). -/
@@ -298,7 +698,20 @@ theorem sLocalThetaTransition_range_eq_invariants (hST : S ⊂ T)
     let ρ := (existsUnique_sLocalThetaAction (F := F) (S := T)).exists.choose
     Set.range (sLocalThetaTransition (F := F) hST.le) =
       {x : Θₛ(T) | ∀ g : relativeIntegralIdeleUnits F S T,
-        ρ (QuotientGroup.mk g.val) x = x} := by sorry
+        ρ (QuotientGroup.mk g.val) x = x} := by
+  ext x
+  constructor
+  · rintro ⟨y, rfl⟩ g
+    exact relativeUnit_fixes_transition hST.le y g
+  · intro hx
+    obtain ⟨f, rfl⟩ := (LinearMap.ker (sLocalAdelicTheta F T)).mkQ_surjective x
+    let q := (LinearMap.ker (sLocalAdelicTheta F T)).mkQ
+    let r := (unitTranslateEnd (R := SAdeleRing F T)).comp (relativeIntegralIdeleUnits F S T).subtype
+    have h (g : relativeIntegralIdeleUnits F S T) : q (r g f) = q f :=
+      ((existsUnique_sLocalThetaAction (F := F) (S := T)).exists.choose_spec.2 g.val f).symm.trans (hx g)
+    obtain ⟨a, ha, hfix⟩ := fixedLift_of_finite_orbit r q f
+      (relativeUnit_finite_orbit hST.le f) h
+    exact ha ▸ relativeUnit_descent hST.le _hPic a hfix
 
 private theorem sLocalThetaToGlobal_range_eq_invariants_intertwine
     (g : IdeleGroup (𝓞 F) F) (hg : g ∈ (integralIdeleInsertion F T).range) (y : Θₛ(T)) :
@@ -532,6 +945,136 @@ theorem finitePlaceBallIndicator_at_power (w : Places) (π : (L(w))ˣ)
     rw [not_le, ← WithZero.exp_zero, WithZero.exp_lt_exp]; omega
 
 
+private theorem finitePlaceSchwartz_invariants_laurent_free_tele (g : ℤ → ℂ) (A B : ℤ) (hA : ∀ m < A, g m = 0)
+    (hB : ∀ m, B ≤ m → g m = g B) (m : ℤ) :
+    ∑ n ∈ Finset.Icc A B, (g n - g (n - 1)) * (if n ≤ m then 1 else 0) = g m := by
+  have hlow : ∀ m < A,
+      ∑ n ∈ Finset.Icc A B, (g n - g (n - 1)) * (if n ≤ m then 1 else 0) = g m := by
+    intro m hm
+    rw [hA m hm]
+    refine Finset.sum_eq_zero fun n hn ↦ ?_
+    rw [Finset.mem_Icc] at hn
+    rw [ite_eq_right (by omega), mul_zero]
+  have hstep : ∀ m : ℤ,
+      ∑ n ∈ Finset.Icc A B, (g n - g (n - 1)) * (if n ≤ m + 1 then 1 else 0) =
+        ∑ n ∈ Finset.Icc A B, (g n - g (n - 1)) * (if n ≤ m then 1 else 0) +
+          (if m + 1 ∈ Finset.Icc A B then g (m + 1) - g (m + 1 - 1) else 0) := by
+    intro m
+    rw [← Finset.sum_ite_eq' (Finset.Icc A B) (m + 1) (fun n ↦ g n - g (n - 1)),
+      ← Finset.sum_add_distrib]
+    refine Finset.sum_congr rfl fun n _ ↦ ?_
+    split_ifs <;> first | (exfalso; omega) | ring1
+  rcases lt_or_ge m A with hm | hm
+  · exact hlow m hm
+  obtain ⟨k, rfl⟩ : ∃ k : ℕ, m = A - 1 + (k + 1) := ⟨(m - A).toNat, by omega⟩
+  induction k with
+  | zero =>
+    rw [show A - 1 + ((0 : ℕ) + 1 : ℤ) = A - 1 + 1 by push_cast; ring, hstep,
+      hlow (A - 1) (by omega), sub_add_cancel]
+    rcases le_or_gt A B with hAB | hAB
+    · rw [ite_eq_left (Finset.mem_Icc.mpr ⟨le_rfl, hAB⟩), hA (A - 1) (by omega)]
+      ring
+    · rw [ite_eq_right (by rw [Finset.mem_Icc]; omega), add_zero,
+        hB _ (by omega), hB A (by omega)]
+  | succ k ih =>
+    have e : A - 1 + (((k + 1 : ℕ) : ℤ) + 1) = (A - 1 + ((k : ℤ) + 1)) + 1 := by push_cast; ring
+    rw [e, hstep, ih (by omega)]
+    by_cases hmem : A - 1 + ((k : ℤ) + 1) + 1 ∈ Finset.Icc A B
+    · rw [ite_eq_left hmem]; ring_nf
+    · rw [ite_eq_right hmem, add_zero]
+      rw [Finset.mem_Icc] at hmem
+      rw [hB (A - 1 + ((k : ℤ) + 1)) (by omega), hB (A - 1 + ((k : ℤ) + 1) + 1) (by omega)]
+
+
+open Classical in
+private theorem finitePlaceSchwartz_invariants_laurent_free_ball_mem (w : Places) (π : (L(w))ˣ) (n : ℤ) :
+    ∃ g : ℬᵥ(w), ∀ x, g (Multiplicative.ofAdd x) = finitePlaceBallIndicator w π n x := by
+  have hc : IsCompact (O(w) : Set L(w)) :=
+    isCompact_iff_compactSpace.mpr (compactSpace_adicCompletionIntegers w)
+  have hO : IsClopen (O(w) : Set L(w)) :=
+    ⟨hc.isClosed, Valued.isOpen_valuationSubring _⟩
+  refine (mem_finitePlaceSchwartz_iff F w _).mpr ⟨?_, ?_⟩
+  · have h : IsLocallyConstant ((O(w) : Set L(w)).indicator (1 : L(w) → ℂ)) := by
+      rw [← LocallyConstant.coe_charFn ℂ hO]
+      exact (LocallyConstant.charFn ℂ hO).isLocallyConstant
+    exact h.comp_continuous (continuous_const_mul (π ^ (-n)).val)
+  · refine HasCompactSupport.intro (hc.image (continuous_const_mul (π ^ n).val)) fun x hx ↦ ?_
+    unfold finitePlaceBallIndicator
+    refine Set.indicator_of_notMem (fun h ↦ hx ⟨_, h, ?_⟩) _
+    show (π ^ n).val * ((π ^ (-n)).val * x) = x
+    rw [← mul_assoc, ← Units.val_mul, ← zpow_add, add_neg_cancel, zpow_zero, Units.val_one,
+      one_mul]
+
+private theorem finitePlaceSchwartz_invariants_laurent_free_ball_invariant (w : Places) (π : (L(w))ˣ) (a : ℤ) (x t u : L(w))
+    (htu : t*u = 1) (ht : t ∈ O(w)) (hu : u ∈ O(w)) :
+    finitePlaceBallIndicator w π a (t*x) = finitePlaceBallIndicator w π a x := by
+  classical
+  let v := (π ^ (-a)).val * x
+  have he : (π ^ (-a)).val * (t*x) = t*v := by dsimp [v]; ring
+  have h : t*v ∈ O(w) ↔ v ∈ O(w) := by
+    refine ⟨fun hv ↦ ?_, fun hv ↦ mul_mem ht hv⟩
+    have h' : (t*v)*u ∈ O(w) := mul_mem hv hu
+    rwa [mul_right_comm, htu, one_mul] at h'
+  unfold finitePlaceBallIndicator
+  rw [he]; by_cases hv : v ∈ O(w)
+  · exact (Set.indicator_of_mem (h.mpr hv) _).trans (Set.indicator_of_mem hv (fun _ ↦ (1 : ℂ))).symm
+  · exact (Set.indicator_of_notMem (mt h.mp hv) _).trans (Set.indicator_of_notMem hv _).symm
+
+private theorem finitePlaceSchwartz_invariants_laurent_free_ball_inv (w : Places) (π : (L(w))ˣ) (n : ℤ) (b : ℬᵥ(w))
+    (hb : ∀ x, b (Multiplicative.ofAdd x) = finitePlaceBallIndicator w π n x) :
+    b ∈ Representation.invariants (ρ(w)) := by
+  rw [Representation.mem_invariants]
+  intro g
+  rw [MonoidHom.comp_apply, Subgroup.coe_subtype, schwartzBruhatUnitRepresentation_apply]
+  refine Subtype.ext (funext fun x ↦ ?_)
+  change schwartzBruhatUnitTranslate g.val b (Multiplicative.ofAdd x.toAdd) = b (Multiplicative.ofAdd x.toAdd)
+  rw [schwartzBruhatUnitTranslate_apply, hb, hb]
+  have hg := g.property
+  rw [Submonoid.mem_units_iff] at hg
+  exact finitePlaceSchwartz_invariants_laurent_free_ball_invariant w π n _ _ _ (by rw [← Units.val_mul, inv_mul_cancel, Units.val_one]) hg.2 hg.1
+
+open Classical in
+private theorem finitePlaceSchwartz_invariants_laurent_free_pow_zero (w : Places) (π : (L(w))ˣ)
+    (hπ : Valuation.IsUniformizer (Valued.v : Valuation (L(w)) (WithZero (Multiplicative ℤ))) π.val) :
+    Filter.Tendsto (fun n : ℕ ↦ π.val ^ n) Filter.atTop (𝓝 0) := by
+  apply Valued.tendsto_zero_pow_of_le_exp_neg_one
+  exact (hπ.trans (congrArg Units.val (Valuation.IsRankOneDiscrete.generator_eq_exp_neg_one_of_surjective
+      (w.valuedAdicCompletion_surjective F)))).le
+
+private theorem finitePlaceSchwartz_invariants_laurent_free_lower {K : Type*} [NormedField K] (p : Kˣ)
+    (hp : Filter.Tendsto (fun n : ℕ ↦ p.val ^ n) Filter.atTop (𝓝 0)) {s : Set K} (hs : IsCompact s) :
+    ∃ l : ℤ, ∀ m : ℤ, (p ^ m).val ∈ s → l ≤ m := by
+  obtain ⟨r,hr⟩ := (Metric.isBounded_iff_subset_closedBall 0).mp hs.isBounded
+  have hn := tendsto_pow_atTop_nhds_zero_iff_norm_lt_one.mp hp
+  have hpos : 0 < ‖p.val‖ := norm_pos_iff.mpr p.ne_zero
+  obtain ⟨N,hN⟩ := Filter.eventually_atTop.mp ((tendsto_pow_atTop_atTop_of_one_lt ((one_lt_inv₀ hpos).mpr hn)).eventually_gt_atTop r)
+  refine ⟨-(N : ℤ),fun m hm ↦ ?_⟩
+  by_contra! hh
+  let n := (-m).toNat
+  have he : m = -(n : ℤ) := by dsimp [n]; omega
+  have hnN : n ≥ N := by omega
+  have hle := Metric.mem_closedBall.mp (hr hm)
+  rw [dist_zero_right, Units.val_zpow_eq_zpow_val,he,zpow_neg,zpow_natCast,norm_inv,norm_pow,← inv_pow] at hle
+  exact (hN n hnN).not_ge hle
+
+open Classical in
+private theorem finitePlaceSchwartz_invariants_laurent_free_orbit (w : Places) (π : (L(w))ˣ)
+    (hπ : Valuation.IsUniformizer (Valued.v : Valuation (L(w)) (WithZero (Multiplicative ℤ))) π.val)
+    {y : L(w)} (hy : y ≠ 0) : ∃ (u : (L(w))ˣ) (m : ℤ), u.val ∈ O(w) ∧ (u⁻¹).val ∈ O(w) ∧
+      y = u.val * (π ^ m).val := by
+  let v : Valuation (L(w)) (WithZero (Multiplicative ℤ)) := Valued.v
+  have hp : v π.val = WithZero.exp (-1 : ℤ) := hπ.trans
+    (congrArg Units.val (Valuation.IsRankOneDiscrete.generator_eq_exp_neg_one_of_surjective (w.valuedAdicCompletion_surjective F)))
+  let m := -(v y).log
+  have hpow : v (π ^ m).val = v y := by
+    rw [Units.val_zpow_eq_zpow_val,map_zpow₀,hp,← WithZero.exp_zsmul]
+    simpa [m] using WithZero.exp_log ((map_ne_zero v).mpr hy)
+  let u := Units.mk0 y hy / π ^ m
+  have hv : v u.val = 1 := by rw [show u.val = y / (π ^ m).val from Units.val_div_eq_div_val _ _,map_div₀,hpow,div_self ((map_ne_zero v).mpr hy)]
+  refine ⟨u,m,(HeightOneSpectrum.mem_adicCompletionIntegers _ _ _).mpr hv.le,?_,?_⟩
+  · rw [HeightOneSpectrum.mem_adicCompletionIntegers]; rw [Units.val_inv_eq_inv_val,map_inv₀,show Valued.v u.val = 1 from hv,inv_one]
+  · exact (congrArg Units.val (div_mul_cancel (Units.mk0 y hy) (π ^ m))).symm
+
 /-- Paper: Lemma 6.1.2.2(1)(1), p. 288.
 The integer-unit invariants form a free Laurent module on the integer-ball indicator.
 Deviation: A complex linear equivalence spells out the Laurent action by the generator
@@ -543,13 +1086,172 @@ theorem finitePlaceSchwartz_invariants_laurent_free (w : Places)
     ∃ e : LaurentPolynomial ℂ ≃ₗ[ℂ] (Representation.invariants (ρ(w))),
       (∀ x, (e 1).val (Multiplicative.ofAdd x) = finitePlaceBallIndicator w π 0 x) ∧
       ∀ P, (e (LaurentPolynomial.T 1 * P)).val =
-        schwartzBruhatUnitTranslate π (e P).val := by sorry
+        schwartzBruhatUnitTranslate π (e P).val := by
+  classical
+  choose b hb using finitePlaceSchwartz_invariants_laurent_free_ball_mem w π
+  let S := Representation.invariants (ρ(w))
+  let v : ℤ → S := fun n ↦ ⟨b n, finitePlaceSchwartz_invariants_laurent_free_ball_inv w π n (b n) (hb n)⟩
+  have hev : ∀ (s : Finset ℤ) (c : ℤ → ℂ) (x : L(w)),
+      ((∑ n ∈ s, c n • v n : S) : ℬᵥ(w)) (Multiplicative.ofAdd x) =
+        ∑ n ∈ s, c n * finitePlaceBallIndicator w π n x := by
+    intro s c x
+    let ev : S →ₗ[ℂ] ℂ :=
+      { toFun := fun f ↦ (f : ℬᵥ(w)) (Multiplicative.ofAdd x)
+        map_add' := fun f g ↦ rfl
+        map_smul' := fun c f ↦ rfl }
+    change ev (∑ n ∈ s, c n • v n) = _
+    rw [map_sum]
+    refine Finset.sum_congr rfl fun n _ ↦ ?_
+    rw [map_smul, smul_eq_mul]
+    exact congrArg (c n * ·) (hb n x)
+  have hli : LinearIndependent ℂ v := by
+    rw [linearIndependent_iff']
+    intro s c hs i hi
+    have hz : ∀ m : ℤ, ∑ n ∈ s, c n * (if n ≤ m then 1 else 0) = 0 := by
+      intro m
+      have h := congrArg (fun f : S ↦ (f : ℬᵥ(w)) (Multiplicative.ofAdd (π ^ m).val)) hs
+      simp only at h
+      rw [hev] at h
+      simp only [finitePlaceBallIndicator_at_power w π _hπ] at h
+      exact h
+    calc c i = ∑ n ∈ s, c n * ((if n ≤ i then 1 else 0) - (if n ≤ i - 1 then 1 else 0)) := by
+          rw [Finset.sum_eq_single i]
+          · rw [ite_eq_left le_rfl, ite_eq_right (by omega)]; ring
+          · intro n _ hne
+            rw [show ((if n ≤ i then (1 : ℂ) else 0) - if n ≤ i - 1 then 1 else 0) = 0 by
+              split_ifs <;> first | (exfalso; omega) | ring1]
+            ring
+          · intro h; exact absurd hi h
+      _ = 0 := by simp only [mul_sub, Finset.sum_sub_distrib, hz, sub_zero]
+  have hsp : ⊤ ≤ Submodule.span ℂ (Set.range v) := by
+    rintro f -
+    let φ : L(w) → ℂ := fun y ↦ (f : ℬᵥ(w)) (Multiplicative.ofAdd y)
+    have hfinv : ∀ (u : (L(w))ˣ), u.val ∈ O(w) → (u⁻¹).val ∈ O(w) → ∀ y,
+        φ (u.val * y) = φ y := by
+      intro u hu hu' y
+      have hU : u⁻¹ ∈ U(w) := by
+        rw [Submonoid.mem_units_iff]
+        exact ⟨hu', by rw [inv_inv]; exact hu⟩
+      have h := (Representation.mem_invariants _ _).mp f.property ⟨u⁻¹, hU⟩
+      have h2 := congrArg (fun g : ℬᵥ(w) ↦ g (Multiplicative.ofAdd y)) h
+      simp only [MonoidHom.comp_apply, Subgroup.coe_subtype,
+        schwartzBruhatUnitRepresentation_apply] at h2
+      rw [schwartzBruhatUnitTranslate_apply, inv_inv] at h2
+      exact h2
+    obtain ⟨hlc, hcs⟩ := (mem_finitePlaceSchwartz_iff F w φ).mp ⟨f.val, fun _ ↦ rfl⟩
+    obtain ⟨l, hl⟩ := finitePlaceSchwartz_invariants_laurent_free_lower π (finitePlaceSchwartz_invariants_laurent_free_pow_zero w π _hπ) hcs
+    have hfib : IsOpen (φ ⁻¹' {φ 0}) := hlc.isOpen_fiber _
+    obtain ⟨N, hN⟩ := Filter.eventually_atTop.mp
+      ((finitePlaceSchwartz_invariants_laurent_free_pow_zero w π _hπ).eventually (hfib.mem_nhds rfl))
+    let g : ℤ → ℂ := fun m ↦ φ (π ^ m).val
+    have hgN : ∀ m : ℤ, (N : ℤ) ≤ m → g m = φ 0 := by
+      intro m hm
+      obtain ⟨k, rfl⟩ : ∃ k : ℕ, m = k := ⟨m.toNat, by omega⟩
+      have := hN k (by omega)
+      simp only [Set.mem_singleton_iff] at this
+      simp only [g, zpow_natCast, Units.val_pow_eq_pow_val]
+      exact this
+    let A := min l (N : ℤ)
+    have hA : ∀ m < A, g m = 0 := fun m hm ↦
+      image_eq_zero_of_notMem_tsupport (f := φ) fun h ↦ absurd (hl m h) (by omega)
+    have hB : ∀ m, (N : ℤ) ≤ m → g m = g N := fun m hm ↦
+      (hgN m hm).trans (hgN N le_rfl).symm
+    have hfeq : f = ∑ n ∈ Finset.Icc A (N : ℤ), (g n - g (n - 1)) • v n := by
+      refine Subtype.ext (SchwartzBruhat.ext fun x ↦ ?_)
+      rw [← ofAdd_toAdd x]
+      generalize x.toAdd = y
+      rw [hev]
+      change φ y = _
+      by_cases hy : y = 0
+      · subst hy
+        rw [Finset.sum_congr rfl (g := fun n ↦ (g n - g (n - 1)) * if n ≤ (N : ℤ) then 1 else 0)
+          fun n hn ↦ ?_, finitePlaceSchwartz_invariants_laurent_free_tele g A N hA hB N, hgN N le_rfl]
+        rw [Finset.mem_Icc] at hn
+        rw [ite_eq_left hn.2]
+        unfold finitePlaceBallIndicator
+        rw [mul_zero, Set.indicator_of_mem (zero_mem _)]
+      · obtain ⟨u, m, hu, hu', rfl⟩ := finitePlaceSchwartz_invariants_laurent_free_orbit w π _hπ hy
+        rw [hfinv u hu hu']
+        rw [Finset.sum_congr rfl (g := fun n ↦ (g n - g (n - 1)) * if n ≤ m then 1 else 0)
+          fun n _ ↦ ?_, finitePlaceSchwartz_invariants_laurent_free_tele g A N hA hB m]
+        rw [finitePlaceSchwartz_invariants_laurent_free_ball_invariant w π n _ _ (u⁻¹).val (by rw [← Units.val_mul, mul_inv_cancel,
+          Units.val_one]) hu hu', finitePlaceBallIndicator_at_power w π _hπ m n]
+    rw [hfeq]
+    exact Submodule.sum_mem _ fun n _ ↦ Submodule.smul_mem _ _ (Submodule.subset_span ⟨n, rfl⟩)
+  have hTb : ∀ n, AddMonoidAlgebra.basis ℤ ℂ n = LaurentPolynomial.T n := fun n ↦ rfl
+  obtain ⟨e, he⟩ : ∃ e : LaurentPolynomial ℂ ≃ₗ[ℂ] S, ∀ n, e (LaurentPolynomial.T n) = v n := by
+    refine ⟨(AddMonoidAlgebra.basis ℤ ℂ).equiv (Module.Basis.mk hli hsp) (Equiv.refl ℤ), fun n ↦ ?_⟩
+    rw [← hTb, Module.Basis.equiv_apply, Equiv.refl_apply, Module.Basis.mk_apply]
+  refine ⟨e, fun x ↦ ?_, ?_⟩
+  · rw [← LaurentPolynomial.T_zero, he]
+    exact hb 0 x
+  · have hL : S.subtype ∘ₗ e.toLinearMap ∘ₗ
+        LinearMap.mulLeft ℂ (LaurentPolynomial.T 1 : LaurentPolynomial ℂ) =
+        (schwartzBruhatUnitRepresentation (R := L(w)) π) ∘ₗ S.subtype ∘ₗ e.toLinearMap := by
+      refine (AddMonoidAlgebra.basis ℤ ℂ).ext fun n ↦ ?_
+      simp only [LinearMap.comp_apply, LinearMap.mulLeft_apply, Submodule.subtype_apply,
+        LinearEquiv.coe_coe, hTb]
+      rw [← LaurentPolynomial.T_add, he, he, schwartzBruhatUnitRepresentation_apply]
+      refine SchwartzBruhat.ext fun x ↦ ?_
+      rw [← ofAdd_toAdd x]
+      generalize x.toAdd = y
+      rw [schwartzBruhatUnitTranslate_apply]
+      change b (1 + n) _ = b n _
+      rw [hb, hb]
+      unfold finitePlaceBallIndicator
+      congr 1
+      rw [← mul_assoc, ← Units.val_mul, ← zpow_neg_one, ← zpow_add]
+      congr 3
+      ring
+    intro P
+    have h := LinearMap.congr_fun hL P
+    simp only [LinearMap.comp_apply, LinearMap.mulLeft_apply, Submodule.subtype_apply,
+      LinearEquiv.coe_coe, schwartzBruhatUnitRepresentation_apply] at h
+    exact h
 
 /-- Paper: Lemma 6.1.2.2(1)(2), p. 288.
 The integer-unit invariants are closed in the local Schwartz–Bruhat space. -/
 theorem finitePlaceSchwartz_invariants_isClosed (w : Places) :
     IsClosed (SetLike.coe (Representation.invariants (V := ℬᵥ(w)) (ρ(w))) : Set ℬᵥ(w)) :=
   unitInvariants_isClosed _
+
+/-- The free Laurent generator and the uniformizer translation give every ball
+indicator: the monomial of exponent n goes to the ball of exponent n. -/
+private theorem finitePlaceSchwartz_invariants_laurent_equiv_monomial (w : Places)
+    (π : (L(w))ˣ) (e : LaurentPolynomial ℂ ≃ₗ[ℂ] (Representation.invariants (ρ(w))))
+    (h1 : ∀ x, (e 1).val (Multiplicative.ofAdd x) = finitePlaceBallIndicator w π 0 x)
+    (hT : ∀ P, (e (LaurentPolynomial.T 1 * P)).val =
+        schwartzBruhatUnitTranslate π (e P).val) :
+    ∀ n x, (e (LaurentPolynomial.T n)).val (Multiplicative.ofAdd x) =
+        finitePlaceBallIndicator w π n x := by
+  intro n
+  induction n using Int.induction_on with
+  | zero =>
+    intro x
+    rw [LaurentPolynomial.T_zero]
+    exact h1 x
+  | succ k ih =>
+    intro x
+    rw [show (k : ℤ) + 1 = 1 + k by ring, LaurentPolynomial.T_add, hT,
+      schwartzBruhatUnitTranslate_apply, ih]
+    unfold finitePlaceBallIndicator
+    congr 1
+    rw [← mul_assoc, ← Units.val_mul, ← zpow_neg_one, ← zpow_add]
+    congr 3
+    ring
+  | pred k ih =>
+    intro x
+    have h := ih ((π : L(w)) * x)
+    rw [show -(k : ℤ) = 1 + (-(k : ℤ) - 1) by ring, LaurentPolynomial.T_add, hT,
+      schwartzBruhatUnitTranslate_apply] at h
+    rw [show (π⁻¹ : (L(w))ˣ).val * ((π : L(w)) * x) = x by
+      rw [← mul_assoc, ← Units.val_mul, inv_mul_cancel, Units.val_one, one_mul]] at h
+    rw [h]
+    unfold finitePlaceBallIndicator
+    congr 1
+    rw [← mul_assoc, ← Units.val_mul, ← zpow_add_one]
+    congr 3
+    ring
 
 /-- Paper: Lemma 6.1.2.2(1)(2), p. 288.
 With the finest locally convex topology on Laurent polynomials, the monomial-to-ball
@@ -560,7 +1262,33 @@ theorem finitePlaceSchwartz_invariants_laurent_equiv (w : Places)
       (Valued.v : Valuation (L(w)) (WithZero (Multiplicative ℤ))) π.val) :
     ∃ e : FinestLocallyConvex (LaurentPolynomial ℂ) ≃L[ℂ] (Representation.invariants (ρ(w))),
       ∀ n x, (e (LaurentPolynomial.T n)).val (Multiplicative.ofAdd x) =
-        finitePlaceBallIndicator w π n x := by sorry
+        finitePlaceBallIndicator w π n x := by
+  obtain ⟨e, h1, hT⟩ := finitePlaceSchwartz_invariants_laurent_free w π _hπ
+  let S := Representation.invariants (ρ(w))
+  have := finestLocallyConvex_t2 (LaurentPolynomial ℂ)
+  have := finestLocallyConvex_t2 ℬᵥ(w)
+  let S' : Submodule ℂ (FinestLocallyConvex ℬᵥ(w)) := S
+  have hS : (instTopologicalSpaceSubtype : TopologicalSpace S) =
+      (instTopologicalSpaceSubtype : TopologicalSpace S') :=
+    congrArg (fun t : TopologicalSpace ℬᵥ(w) ↦ TopologicalSpace.induced
+      (Subtype.val : S → ℬᵥ(w)) t) (finitePlaceSchwartz_finestTopology F w)
+  have hS2 : (instTopologicalSpaceSubtype : TopologicalSpace S') =
+      (inferInstance : TopologicalSpace (FinestLocallyConvex S')) :=
+    finestLocallyConvex_submodule_topology S'
+  have hfwd : @Continuous (FinestLocallyConvex (LaurentPolynomial ℂ)) S _
+      instTopologicalSpaceSubtype e := by
+    rw [hS]
+    refine continuous_induced_rng.2 ?_
+    exact continuous_of_finestLocallyConvex (LaurentPolynomial ℂ) (M := FinestLocallyConvex ℬᵥ(w))
+      (S'.subtype.comp (e : LaurentPolynomial ℂ →ₗ[ℂ] S))
+  have hinv : @Continuous S (FinestLocallyConvex (LaurentPolynomial ℂ))
+      instTopologicalSpaceSubtype _ e.symm := by
+    rw [hS, hS2]
+    let g : FinestLocallyConvex S' →ₗ[ℂ] FinestLocallyConvex (LaurentPolynomial ℂ) :=
+      e.symm.toLinearMap
+    exact continuous_of_finestLocallyConvex S' g
+  exact ⟨{ toLinearEquiv := e, continuous_toFun := hfwd, continuous_invFun := hinv },
+    finitePlaceSchwartz_invariants_laurent_equiv_monomial w π e h1 hT⟩
 
 end Laurent
 
@@ -1938,28 +2666,6 @@ theorem finitePlaceUnitAverage_integrable (w : Places) (f : ℬᵥ(w)) (x : L(w)
     ((ae_restrict_iff' (units_isOpen w).measurableSet).2 (Filter.Eventually.of_forall hC))
 
 
-/-- Paper: Lemma 6.1.2.4(2), (6.1.2.13)–(6.1.2.14), p. 292.
-Local unit averaging defines a linear map to compactly supported continuous functions
-which is continuous for their uniform norm. -/
-theorem finitePlaceUnitAverage_continuous_uniform (w : Places) :
-    ∃ A : ℬᵥ(w) →ₗ[ℂ] C_c(L(w), ℂ),
-      (∀ f x, A f x = finitePlaceUnitAverage w f x) ∧
-        Continuous (fun f ↦ (A f).toBoundedContinuousFunction) := by sorry
-
-/-- Paper: Lemma 6.1.2.4(2), p. 292.
-Local unit averaging also defines a continuous linear map in the intrinsic
-Schwartz–Bruhat topology. -/
-theorem finitePlaceUnitAverage_continuous_schwartzBruhat (w : Places) :
-    ∃ A : ℬᵥ(w) →L[ℂ] ℬᵥ(w),
-      ∀ f x, A f (Multiplicative.ofAdd x) = finitePlaceUnitAverage w f x := by sorry
-
-/-- Paper: Lemma 6.1.2.4(2), p. 292.
-A test function averages to zero exactly when it belongs to the span of unit
-translation differences. -/
-theorem finitePlaceUnitAverage_eq_zero_iff (w : Places) (f : ℬᵥ(w)) :
-    (∀ x, finitePlaceUnitAverage w f x = 0) ↔
-      f ∈ Representation.Coinvariants.ker (ρ(w)) := by sorry
-
 -- TODO(paper-gap): The proof on p. 292 identifies multiplicative unit averaging
 -- with additive convolution and deduces vanishing of the function from unramified
 -- Mellin values. For the indicator of the integer ring at the trivial character,
@@ -2145,6 +2851,89 @@ theorem finitePlaceUnitAverage_coinvariants_equiv (w : Places) :
       (finitePlaceUnitAverage_coinvariants_equiv_fixed (F := F) w)
       (finitePlaceUnitAverage_coinvariants_equiv_surj (F := F) w)
 
+/-- Paper: Lemma 6.1.2.4(2), p. 292.
+A test function averages to zero exactly when it belongs to the span of unit
+translation differences. -/
+theorem finitePlaceUnitAverage_eq_zero_iff (w : Places) (f : ℬᵥ(w)) :
+    (∀ x, finitePlaceUnitAverage w f x = 0) ↔
+      f ∈ Representation.Coinvariants.ker (ρ(w)) := by
+  obtain ⟨N, hN⟩ := finitePlaceUnitAverage_coinvariants_equiv (F := F) w
+  constructor
+  · intro h
+    have hz : N (Submodule.Quotient.mk f) = 0 := by
+      refine Subtype.ext (SchwartzBruhat.ext fun y ↦ ?_)
+      exact (hN f (Multiplicative.toAdd y)).trans (h _)
+    have h0 : (Submodule.Quotient.mk f :
+        ℬᵥ(w) ⧸ Representation.Coinvariants.ker (ρ(w))) = 0 :=
+      N.injective (hz.trans (map_zero N).symm)
+    exact (Submodule.Quotient.mk_eq_zero _).mp h0
+  · intro hf x
+    have hz : (Submodule.Quotient.mk f :
+        ℬᵥ(w) ⧸ Representation.Coinvariants.ker (ρ(w))) = 0 :=
+      (Submodule.Quotient.mk_eq_zero _).mpr hf
+    rw [← hN f x, hz, map_zero]
+    rfl
+
+/-- Paper: Lemma 6.1.2.4(2), p. 292.
+Local unit averaging also defines a continuous linear map in the intrinsic
+Schwartz–Bruhat topology. -/
+theorem finitePlaceUnitAverage_continuous_schwartzBruhat (w : Places) :
+    ∃ A : ℬᵥ(w) →L[ℂ] ℬᵥ(w),
+      ∀ f x, A f (Multiplicative.ofAdd x) = finitePlaceUnitAverage w f x := by
+  let K := Representation.Coinvariants.ker (ρ(w))
+  let I := Representation.invariants (ρ(w))
+  let N := (finitePlaceUnitAverage_coinvariants_equiv w).choose
+  let A : ℬᵥ(w) →L[ℂ] ℬᵥ(w) :=
+    { toLinearMap := I.subtype.comp (N.toLinearEquiv.toLinearMap.comp K.mkQ)
+      cont := continuous_subtype_val.comp (N.continuous.comp K.continuous_mkQ) }
+  exact ⟨A, (finitePlaceUnitAverage_coinvariants_equiv w).choose_spec⟩
+
+private theorem finitePlaceUnitAverage_continuous_uniform_of_finest {E X : Type*}
+    [AddCommGroup E] [Module ℂ E] [t : TopologicalSpace E] [TopologicalSpace X]
+    (ht : t = (inferInstance : TopologicalSpace (FinestLocallyConvex E)))
+    (L : E →ₗ[ℂ] (X → ℂ))
+    (hc : ∀ f, Continuous (L f)) (hs : ∀ f, HasCompactSupport (L f)) :
+    ∃ A : E →ₗ[ℂ] C_c(X, ℂ), (∀ f x, A f x = L f x) ∧
+      Continuous (fun f ↦ (A f).toBoundedContinuousFunction) := by
+  let A : E →ₗ[ℂ] C_c(X, ℂ) :=
+    { toFun := fun f ↦ ⟨⟨L f, hc f⟩, hs f⟩
+      map_add' := fun f g ↦ CompactlySupportedContinuousMap.ext fun x ↦
+        congrFun (L.map_add f g) x
+      map_smul' := fun c f ↦ CompactlySupportedContinuousMap.ext fun x ↦
+        congrFun (L.map_smul c f) x }
+  let B : FinestLocallyConvex E →ₗ[ℂ] (BoundedContinuousFunction X ℂ) :=
+    { toFun := fun f ↦ (A f).toBoundedContinuousFunction
+      map_add' := fun f g ↦ BoundedContinuousFunction.ext fun x ↦
+        congrFun (L.map_add f g) x
+      map_smul' := fun c f ↦ BoundedContinuousFunction.ext fun x ↦
+        congrFun (L.map_smul c f) x }
+  exact ⟨A, fun _ _ ↦ rfl,
+    (congrArg (fun t' ↦ @Continuous E (BoundedContinuousFunction X ℂ) t' _ B) ht).mpr
+      (continuous_of_finestLocallyConvex E B)⟩
+
+/-- Paper: Lemma 6.1.2.4(2), (6.1.2.13)–(6.1.2.14), p. 292.
+Local unit averaging defines a linear map to compactly supported continuous functions
+which is continuous for their uniform norm. -/
+theorem finitePlaceUnitAverage_continuous_uniform (w : Places) :
+    ∃ A : ℬᵥ(w) →ₗ[ℂ] C_c(L(w), ℂ),
+      (∀ f x, A f x = finitePlaceUnitAverage w f x) ∧
+        Continuous (fun f ↦ (A f).toBoundedContinuousFunction) := by
+  let N := (finitePlaceUnitAverage_continuous_schwartzBruhat w).choose
+  let L : ℬᵥ(w) →ₗ[ℂ] (L(w) → ℂ) :=
+    { toFun := fun f x ↦ N f (Multiplicative.ofAdd x)
+      map_add' := fun f g ↦ funext fun x ↦
+        congrArg (fun h : ℬᵥ(w) ↦ h (Multiplicative.ofAdd x)) (N.map_add f g)
+      map_smul' := fun c f ↦ funext fun x ↦
+        congrArg (fun h : ℬᵥ(w) ↦ h (Multiplicative.ofAdd x)) (N.map_smul c f) }
+  have hc (f : ℬᵥ(w)) : Continuous (L f) :=
+    (schwartzBruhat_continuous (N f)).comp continuous_ofAdd
+  have hs (f : ℬᵥ(w)) : HasCompactSupport (L f) :=
+    ((mem_finitePlaceSchwartz_iff F w (L f)).mp ⟨N f, fun _ ↦ rfl⟩).2
+  have h := finitePlaceUnitAverage_continuous_uniform_of_finest
+    (finitePlaceSchwartz_finestTopology F w) L hc hs
+  refine ⟨h.choose, fun f x ↦ (h.choose_spec.1 f x).trans ?_, h.choose_spec.2⟩
+  exact (finitePlaceUnitAverage_continuous_schwartzBruhat w).choose_spec f x
+
 local notation "K(" D ")" => FinitePlaceProduct F D
 local notation "KUnits(" D ")" =>
   (Subgroup.pi Set.univ (fun w : D ↦ U(w.val))).comap
@@ -2209,6 +2998,96 @@ theorem finiteProductSchwartz_unitInvariants_isClosed (D : Finset Places) (_hD :
     IsClosed ((Representation.invariants (ρΠ(D))) : Set ℬ(K(D))) :=
   unitInvariants_isClosed _
 
+private theorem finiteProductUnitAverage_coinvariants_equiv_representative
+    (D : Finset Places) (f : ℬ(K(D))) :
+    ∃ y : Representation.invariants (ρΠ(D)),
+      Representation.Coinvariants.mk (ρΠ(D)) y.val =
+        Representation.Coinvariants.mk (ρΠ(D)) f := by
+  classical
+  let C : Set (K(D)) := univ.pi fun v : D ↦ (O(v.val) : Set (L(v.val)))
+  have hC : IsCompact C := isCompact_univ_pi fun v : D ↦
+    isCompact_iff_compactSpace.mpr (compactSpace_adicCompletionIntegers v.val)
+  let : TotallyDisconnectedSpace (Multiplicative (K(D))) :=
+    inferInstanceAs (TotallyDisconnectedSpace (∀ v : D, L(v.val)))
+  have hf := schwartzBruhat_locallyConstant_compactSupport
+    (finitePlaceProduct_compact_subset_subgroup F D) f
+  have hfinite := finite_unit_dilates C hC f hf.1 hf.2
+  have horbit : (range fun g : KUnits(D) ↦ (ρΠ(D)) g f).Finite := by
+    refine hfinite.subset ?_
+    rintro _ ⟨g, rfl⟩
+    have hu (v : D) : MulEquiv.piUnits (M := fun v : D ↦ L(v.val)) g.val v ∈ U(v.val) :=
+      g.property v (mem_univ v)
+    exact ⟨⟨g.val, fun v _ ↦ (hu v).1, fun v _ ↦ (hu v).2⟩, rfl⟩
+  exact finitePlaceUnitAverage_coinvariants_equiv_representative
+    (G := KUnits(D)) (E := ℬ(K(D))) (ρΠ(D)) f horbit.toFinset fun y ↦ by
+      rw [Set.Finite.mem_toFinset, Set.mem_range]
+
+private theorem finiteProductUnitAverage_coinvariants_equiv_integral (D : Finset Places) :
+    let ν := Measure.pi fun v : D ↦ (μ(v.val)).restrict (U(v.val))
+    let m : ℂ := (ν.real univ : ℝ)
+    m ≠ 0 ∧
+      (∀ x : K(D), ∃ l : (ℬ(K(D)) ⧸ Representation.Coinvariants.ker (ρΠ(D))) →ₗ[ℂ] ℂ,
+        ∀ f, l ((Representation.Coinvariants.ker (ρΠ(D))).mkQ f) =
+          finiteProductUnitAverage D f x) ∧
+      (∀ (y : Representation.invariants (ρΠ(D))) (x : K(D)),
+        finiteProductUnitAverage D y.val x = m * y.val (Multiplicative.ofAdd x)) := by
+  classical
+  let ν := Measure.pi fun v : D ↦ (μ(v.val)).restrict (U(v.val))
+  let m : ℂ := (ν.real univ : ℝ)
+  let H := Subgroup.pi Set.univ fun v : D ↦ U(v.val)
+  let (v : D) : (μ(v.val)).IsHaarMeasure :=
+    finiteLocalMultiplicativeTamagawaMeasure_isHaarMeasure v.val
+  let ambientMeasure := Measure.pi fun v : D ↦ μ(v.val)
+  let e := MulEquiv.piUnits (M := fun v : D ↦ L(v.val))
+  have hH : MeasurableSet (H : Set (∀ v : D, (L(v.val))ˣ)) :=
+    MeasurableSet.univ_pi fun v ↦ (units_isOpen v.val).measurableSet
+  have hν : ambientMeasure.restrict (H : Set (∀ v : D, (L(v.val))ˣ)) = ν :=
+    Measure.restrict_pi_pi (fun v : D ↦ μ(v.val)) (fun v ↦ (U(v.val) : Set (L(v.val))ˣ))
+  have hm : m ≠ 0 := by
+    change ((ν univ).toReal : ℂ) ≠ 0
+    rw [Measure.pi_univ, ENNReal.toReal_prod, Complex.ofReal_prod]
+    simp only [Measure.restrict_apply_univ]
+    exact Finset.prod_ne_zero_iff.mpr (fun v _ ↦ finitePlaceUnitAverage_coinvariants_equiv_mass v.val)
+  refine ⟨hm, ?_, ?_⟩
+  · intro x
+    let A : ℬ(K(D)) →ₗ[ℂ] ℂ :=
+      { toFun := fun f ↦ finiteProductUnitAverage D f x
+        map_add' := fun f g ↦ integral_add (finiteProductUnitAverage_integrable D f x)
+          (finiteProductUnitAverage_integrable D g x)
+        map_smul' := fun c f ↦ integral_smul c _ }
+    refine ⟨Representation.Coinvariants.lift (ρΠ(D)) A
+      (fun g ↦ LinearMap.ext fun f ↦ ?_), fun _ ↦ rfl⟩
+    let a := e (g⁻¹ : KUnits(D)).val
+    have ha : a ∈ H := (g⁻¹ : KUnits(D)).property
+    let φ (u : ∀ v : D, (L(v.val))ˣ) := f (Multiplicative.ofAdd (x * (e.symm u).val))
+    have hφ (u : ∀ v : D, (L(v.val))ˣ) :
+        ((ρΠ(D)) g f) (Multiplicative.ofAdd (x * (e.symm u).val)) = φ (a * u) := by
+      change f (Multiplicative.ofAdd ((g.val⁻¹ : (K(D))ˣ).val * (x * (e.symm u).val))) =
+        f (Multiplicative.ofAdd (x * (e.symm (a * u)).val))
+      refine congrArg (fun z : K(D) ↦ f (Multiplicative.ofAdd z)) ?_
+      rw [e.symm.map_mul, show e.symm a = g.val⁻¹ from e.symm_apply_apply _]
+      exact mul_left_comm _ _ _
+    change (∫ u, ((ρΠ(D)) g f) (Multiplicative.ofAdd (x * (e.symm u).val)) ∂ν) = ∫ u, φ u ∂ν
+    simp_rw [hφ]
+    rw [← hν]
+    exact finitePlaceUnitAverage_coinvariants_equiv_restrict ambientMeasure H hH a ha φ
+  · intro y x
+    let φ (u : ∀ v : D, (L(v.val))ˣ) := y.val (Multiplicative.ofAdd (x * (e.symm u).val))
+    have hφ (u : ∀ v : D, (L(v.val))ˣ) (hu : u ∈ H) :
+        φ u = y.val (Multiplicative.ofAdd x) := by
+      let g : KUnits(D) := ⟨e.symm u, by change e (e.symm u) ∈ H; rwa [e.apply_symm_apply]⟩
+      have he := congrArg (fun f : ℬ(K(D)) ↦ f (Multiplicative.ofAdd x)) (y.property g⁻¹)
+      change y.val (Multiplicative.ofAdd (((g⁻¹ : KUnits(D)).val⁻¹ : (K(D))ˣ).val * x)) =
+        y.val (Multiplicative.ofAdd x) at he
+      rw [Subgroup.coe_inv, inv_inv, mul_comm] at he
+      exact he
+    change ∫ u, φ u ∂ν = m * y.val (Multiplicative.ofAdd x)
+    calc
+      ∫ u, φ u ∂ν = ∫ u, y.val (Multiplicative.ofAdd x) ∂ν := by
+        rw [← hν]
+        exact setIntegral_congr_fun hH hφ
+      _ = _ := (integral_const _).trans Complex.real_smul
+
 /-- Paper: Lemma 6.1.2.4(3), (6.1.2.16), p. 292.
 The product of the local unit averages induces a linear homeomorphism from
 coinvariants with their quotient topology to invariants on the finite product.
@@ -2216,7 +3095,26 @@ Deviation: The place set is written directly as the finite set of additional pla
 theorem finiteProductUnitAverage_coinvariants_equiv (D : Finset Places) (_hD : D.Nonempty) :
     ∃ N : (ℬ(K(D)) ⧸ Representation.Coinvariants.ker (ρΠ(D))) ≃L[ℂ] (Representation.invariants (ρΠ(D))),
       ∀ (f : ℬ(K(D))) x, (N (Submodule.Quotient.mk f)).val (Multiplicative.ofAdd x) =
-        finiteProductUnitAverage D f x := by sorry
+        finiteProductUnitAverage D f x := by
+  let E := ℬ(K(D))
+  let v (f : E) (x : K(D)) := f (Multiplicative.ofAdd x)
+  let ν := Measure.pi fun v : D ↦ (μ(v.val)).restrict (U(v.val))
+  let m : ℂ := (ν.real univ : ℝ)
+  have hc (T : E →ₗ[ℂ] E) : Continuous T := by
+    have h := finestLocallyConvex_withSeminorms E
+    let : IsTopologicalAddGroup (FinestLocallyConvex E) := h.isTopologicalAddGroup
+    let T' : FinestLocallyConvex E →ₗ[ℂ] FinestLocallyConvex E := T
+    have hT := h.continuous_of_continuous_comp T' fun p ↦ h.continuous_seminorm (p.comp T')
+    exact (congrArg (fun t ↦ @Continuous E E t t T)
+      (finiteProduct_tailSchwartz_finestTopology F D ∅).1).mpr hT
+  have hv (f g : E) (h : ∀ x, v f x = v g x) : f = g :=
+    Subtype.ext (funext fun x ↦ h x.toAdd)
+  have hsmul (f : E) (x : K(D)) : v (m • f) x = m * v f x := rfl
+  have h := finiteProductUnitAverage_coinvariants_equiv_integral (F := F) D
+  have result := finitePlaceUnitAverage_coinvariants_equiv_assemble (E := E)
+    (G := KUnits(D)) (X := K(D)) (ρΠ(D)) hc m h.1 v (finiteProductUnitAverage D) hv hsmul
+  with_reducible
+    exact result h.2.1 h.2.2 (finiteProductUnitAverage_coinvariants_equiv_representative D)
 
 end Averaging
 

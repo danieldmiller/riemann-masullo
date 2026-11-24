@@ -35,6 +35,11 @@ not.
 
 ## Get involved
 
+> **New claims are paused** (since 14:10 UTC on 23 November 2026) while the open pull requests
+> are checked and merged: they were arriving faster than they could be checked. Work that is
+> already claimed is welcome, and claims will reopen when the backlog is cleared. See
+> [#6674](https://github.com/mccorvie/riemann-masullo/issues/6674).
+
 Several hundred proofs are open, and each one is a single Lean statement that is already
 written. You need no special access and no knowledge of the whole paper. Give your coding agent
 (Codex, Claude Code or any agent that can run shell commands) this instruction:
@@ -93,15 +98,15 @@ the roadmap below the order of work.
 
 ### What the formalization has found
 
-[`ERRATA.md`](ERRATA.md) has about 660 entries: some 245 statements that are false as printed,
-345 that are imprecise, inconsistent or wrongly justified, 49 placeholders or missing pieces,
+[`ERRATA.md`](ERRATA.md) has about 750 entries: some 270 statements that are false as printed,
+400 that are imprecise, inconsistent or wrongly justified, 50 placeholders or missing pieces,
 and 25 reports about parts of the paper that are not stated in Lean. Five outside audits have
 been compared with it report by report, and it names them where they found the same thing. Those in the appendices' and early
 chapters' accounts of standard material are repaired where they occur: the Lean states the
 corrected form and says so.
 
 The second wave has reached the paper's own constructions in Chapters 5–7, and the findings
-there weigh more. Most still come with a repair. Twenty-two steps have none so far, and later
+there weigh more. Most still come with a repair. Twenty-eight steps have none so far, and later
 results use them; `ERRATA.md` lists them first. The main one in Chapter 5 is the structure
 theorem for the spaces of adelic θ-functions (Theorem 5.2.1.1): its printed proof does not
 work. One of its two central claims, that each finite stage embeds in the global space, has
@@ -109,7 +114,7 @@ since been proved in Lean by a different route. The other, strictness, is neithe
 refuted, and the rest of §5.2 is proved from it. The explicit formulas of §B.4, which
 Chapter 12 quotes, need their local terms and normalizations recomputed.
 
-The third wave has reached the trace formula. Sixteen of the twenty-two steps are in Chapters
+The third wave has reached the trace formula. Twenty of the twenty-eight steps are in Chapters
 10–12 or in the later sections of Chapter 7: the bases and nuclear presentations from which the
 spectral and orbital traces are computed (§7.3–7.4, §10.2–10.4, §11.1–11.2) are not established by the
 printed arguments, and the section that should compare the global trace with the S-local one
@@ -271,6 +276,8 @@ on work that does not appear there.
 - Five independent readings of the paper located gaps, some of them before the formalization
   reached those pages. [`ERRATA.md`](ERRATA.md) names them where an entry agrees with one or
   started from one, and agents that work on those pages are given them as leads to test.
+  [`OUTSIDE_REPORTS.md`](OUTSIDE_REPORTS.md) indexes what each of them reported, page by page,
+  with where it stands in the errata and in the Lean.
   - **Isaac Yonemoto**'s dependency audit,
     [`ityonemo/music-of-primes`](https://github.com/ityonemo/music-of-primes). It includes
     **Jenny Lorraine Nielsen**'s note *A Failure of Uniform Boundedness in Masullo's Proposed
@@ -292,6 +299,9 @@ on work that does not appear there.
   when they are nested. He measured every one in the library and proposed the redesign (#5398)
   and the rules for new definitions (#5362), which are adapted from
   [Tau Ceti](https://github.com/TauCetiProject/TauCetiReview)'s review rubric.
+- **Cornelius Roemer** ([@corneliusroemer](https://github.com/corneliusroemer)) analysed why
+  the checks and the merge queue fell behind, proposed a staged plan to relieve them (#6787),
+  offered a dedicated machine for it, and wrote a scheduler for the pull-request checks (#6834).
 - Proofs were adapted from [`CBirkbeck/AINTLIB`](https://github.com/CBirkbeck/AINTLIB) and
   [`Rogerhu12/hecke-seven-eighths`](https://github.com/Rogerhu12/hecke-seven-eighths). The
   scouts' surveys of what already exists in Lean

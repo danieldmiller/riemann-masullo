@@ -1,7 +1,7 @@
 module
 
 public import RiemannMasullo.Ch12_TraceGeometric.Sec1b
-import all RiemannMasullo.Ch10_TraceSpectral.Sec1
+import RiemannMasullo.Ch10_TraceSpectral.Sec1
 
 /-! # The weighted spectral kernel in Remark 12.1.1.4 -/
 
@@ -22,7 +22,7 @@ attribute [local instance] uniformContinuousConstSMul_of_continuousConstSMul
 
 local notation "C𝔽(" F ")" => IdeleClassGroup (𝓞 F) F
 local notation "μ(" F ")" => ideleClassTamagawaMeasure F
-local notation "logNorm(" F ")" => (fun g : C𝔽(F) ↦ Real.log ((ideleClassNorm F g).val : ℝ))
+local notation "logNorm(" F ")" => (logIdeleClassNorm F)
 local notation "w(" F ", " s ")" => (fun g : C𝔽(F) ↦ intervalSobolevDensity (-(0 : ℝ)) 0 s (logNorm(F) g))
 local notation "ν(" F ", " s ")" => ((μ(F)).withDensity fun g ↦ ENNReal.ofReal (w(F, s) g))
 local notation "hs₁(" hs ")" => (lt_of_lt_of_le (by norm_num : (1 : ℝ) < 3) hs)

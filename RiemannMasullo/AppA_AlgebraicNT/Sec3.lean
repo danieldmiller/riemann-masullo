@@ -13,7 +13,7 @@ public import Mathlib.RingTheory.DedekindDomain.Different
 public import Mathlib.Topology.Algebra.Group.Units
 
 import all RiemannMasullo.AppA_AlgebraicNT.Sec1  -- for the open integral subgroups
-import all RiemannMasullo.AppA_AlgebraicNT.Sec2  -- for the diagonal adelic basis
+import RiemannMasullo.AppA_AlgebraicNT.Sec2  -- for the diagonal adelic basis
 import all RiemannMasullo.AppD_SchwartzBruhat.Sec1a  -- for Weil disintegration
 import RiemannMasullo.AppD_SchwartzBruhat.Sec1b  -- for duality of a quotient and its annihilator
 import Mathlib.Analysis.SpecialFunctions.Complex.Circle
@@ -7938,11 +7938,11 @@ private theorem sAdeleProjection_restrict (T : Finset (Primes(F))) (hST : Disjoi
   ac_rfl
 
 /-- Frequencies whose outside coordinates annihilate the omitted local integer rings. -/
-private def sAdeleTailDual : Set 𝔸[F] :=
+def sAdeleTailDual : Set 𝔸[F] :=
   {y | ∀ v : Primes(F), v ∉ S → ‖y.2 v‖ ≤ (v.asIdeal.absNorm : ℝ) ^ differentExp(F, v)}
 
 /-- The integer tail and its annihilator project with reciprocal masses. -/
-private theorem sAdeleProjection_dual_masses :
+theorem sAdeleProjection_dual_masses :
     ∃ c : ℝ≥0, c ≠ 0 ∧ MeasurableSet (sAdeleTailDual F S) ∧
       MeasurePreserving (adeleProjection F S)
         ((additiveTamagawaMeasure F).restrict (integralAdelesOutside F S)) (c • sAdditiveTamagawaMeasure F S) ∧
@@ -8024,7 +8024,7 @@ private theorem sAdeleProjection_dual_masses :
 
 /-- Extending a function by the integer-tail indicator restricts its Fourier
 transform to the dual tail and multiplies it by the omitted integer mass. -/
-private theorem tamagawaFourier_sAdeleLift (c : ℝ≥0)
+theorem tamagawaFourier_sAdeleLift (c : ℝ≥0)
     (hm : MeasurePreserving (adeleProjection F S)
       ((additiveTamagawaMeasure F).restrict (integralAdelesOutside F S)) (c • sAdditiveTamagawaMeasure F S))
     (f : SAdeleRing F S → ℂ) (hf : Integrable f (sAdditiveTamagawaMeasure F S)) :
