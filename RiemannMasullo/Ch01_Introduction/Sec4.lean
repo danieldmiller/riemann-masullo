@@ -6,6 +6,7 @@ import all RiemannMasullo.Ch10_TraceSpectral.Sec1
 import all RiemannMasullo.AppB_AnalyticNT.Sec4b
 
 import all RiemannMasullo.Ch07_SchauderBasesZeta.Sec5
+import RiemannMasullo.ForMathlib.Analysis.MellinTransform.Holomorphic
 
 /-! # From the trace formula to GRH
 
@@ -406,12 +407,169 @@ local notation "archSum(" χ ", " h ")" =>
 local notation "primeSum(" χ ", " h ")" =>
   (∑' p : V × ℕ, introTracePrimePower χ h p.1 p.2)
 
+/-- With the radial cutoff fixed, Fubini combines the local integral and the
+mollification into a single weighted Mellin integral. -/
+private theorem introTraceApprox_archimedean_differentiable_integral
+    {X : Type*} [MeasurableSpace X] (μ : Measure X) [SFinite μ] (A : X → ℂ) (t : X → ℝ)
+    (ρ : ℝ → ℝ) (hA : Measurable A) (ht : Measurable t) (hρ : Measurable ρ)
+    (hAi : Integrable A μ) (hρi : Integrable ρ) (B ε : ℝ)
+    (hB : ∀ x, A x ≠ 0 → t x ≤ B) (hε : ∀ u, ρ u ≠ 0 → -ε ≤ u) :
+    Differentiable ℂ (fun z ↦ ∫ x, A x * ∫ u, (ρ u : ℂ) *
+      introTracePower z (t x - u) ∂volume ∂μ) := by
+  let r (p : X × ℝ) := max 1 (t p.1 - p.2)
+  let f (p : X × ℝ) := A p.1 * (ρ p.2 : ℂ) * introTracePower 0 (t p.1 - p.2)
+  have hr : Measurable r := measurable_const.max (ht.comp measurable_fst |>.sub measurable_snd)
+  have hr1 (p : X × ℝ) : 1 ≤ r p := le_max_left _ _
+  have hrp (p : X × ℝ) : 0 < r p := zero_lt_one.trans_le (hr1 p)
+  have hf : Measurable f := by
+    have hp : Measurable (introTracePower 0) := by
+      unfold introTracePower
+      exact Measurable.ite measurableSet_Ioi (by fun_prop)
+        (Measurable.ite (measurableSet_singleton 1) measurable_const measurable_const)
+    exact ((hA.comp measurable_fst).mul ((hρ.comp measurable_snd).complex_ofReal)).mul
+      (hp.comp ((ht.comp measurable_fst).sub measurable_snd))
+  have hI (z : ℂ) : Integrable (fun p ↦ f p * (r p : ℂ) ^ z) (μ.prod volume) := by
+    let C := max 1 (B + ε) ^ |z.re|
+    have hdom := (hAi.norm.mul_prod hρi.norm).mul_const C
+    refine hdom.mono' (hf.mul (hr.complex_ofReal.pow_const _)).aestronglyMeasurable
+      (Eventually.of_forall fun p ↦ ?_)
+    by_cases ha : A p.1 = 0
+    · simp [f, ha]
+    by_cases hρ0 : ρ p.2 = 0
+    · simp [f, hρ0]
+    have hrle : r p ≤ max 1 (B + ε) := by
+      exact max_le_max le_rfl (by linarith [hB _ ha, hε _ hρ0])
+    have hpow : r p ^ z.re ≤ C :=
+      (Real.rpow_le_rpow_of_exponent_le (hr1 p) (le_abs_self _)).trans
+        (Real.rpow_le_rpow (hrp p).le hrle (abs_nonneg _))
+    have hp : ‖introTracePower 0 (t p.1 - p.2)‖ ≤ 1 := by
+      unfold introTracePower
+      split_ifs <;> norm_num [norm_div]
+    simp only [f, norm_mul, Complex.norm_real, Complex.norm_cpow_eq_rpow_re_of_pos (hrp p)]
+    calc
+      _ ≤ (‖A p.1‖ * ‖ρ p.2‖ * 1) * C := by gcongr
+      _ = _ := by simp
+  have han := analyticOnNhd_integral_mul_cpow_of_integrable (μ.prod volume)
+    f r hr hrp isOpen_univ (fun z _ ↦ hI z)
+  have hd : Differentiable ℂ (fun z : ℂ ↦ ∫ p, f p * (r p : ℂ) ^ z ∂μ.prod volume) :=
+    fun z ↦ (han z (mem_univ _)).differentiableAt
+  convert hd.comp differentiable_neg using 1
+  ext1 z
+  change _ = ∫ p, f p * (r p : ℂ) ^ (-z) ∂μ.prod volume
+  rw [integral_prod _ (hI (-z))]
+  apply integral_congr_ae
+  refine ae_of_all _ fun x ↦ ?_
+  dsimp only
+  rw [← integral_const_mul]
+  apply integral_congr_ae
+  refine ae_of_all _ fun u ↦ ?_
+  have hp (a : ℝ) : introTracePower z a =
+      introTracePower 0 a * ((max 1 a : ℝ) : ℂ) ^ (-z) := by
+    by_cases ha : 1 < a
+    · simp [introTracePower, ha, max_eq_right ha.le]
+    · simp [introTracePower, ha, max_eq_left (le_of_not_gt ha)]
+  simp only [f, r, hp (t x - u), mul_assoc]
+
 /-- Paper: §1.4.3, p. 29. Each fixed-cutoff archimedean integral is entire
 in the parameter.
 Deviation: The archimedean kernels use the corrected trace formula. -/
 theorem introTraceApprox_archimedean_differentiable (χ : U𝔽) (h ρ : ℕ → ℝ → ℝ)
     (_hA : IsIntroTraceApproximation h ρ) (n : ℕ) (w : InfinitePlace F) :
-    Differentiable ℂ (fun z ↦ introTraceArchimedean χ approx(h, ρ, n, z) w) := by sorry
+    Differentiable ℂ (fun z ↦ introTraceArchimedean χ approx(h, ρ, n, z) w) := by
+  classical
+  let : MeasurableSpace w.Completion := borel _
+  let : BorelSpace w.Completion := ⟨rfl⟩
+  let : SecondCountableTopology w.Completion :=
+    (InfinitePlace.Completion.isometry_extensionEmbedding w).isEmbedding.secondCountableTopology
+  let : BorelSpace w.Completionˣ := borelSpace_units_of_continuousInv₀ _
+  let : SecondCountableTopology w.Completionˣ := Units.isEmbedding_val₀.secondCountableTopology
+  let : LocallyCompactSpace w.Completionˣ :=
+    (IsOpenUnits.isOpenEmbedding_unitsVal (M := w.Completion)).locallyCompactSpace
+  let μ := infiniteLocalMultiplicativeTamagawaMeasure F w
+  let : μ.IsHaarMeasure := infiniteLocalMultiplicativeTamagawaMeasure_haar F w
+  let localClass := IdeleClassGroup.ofCompletion (𝓞 F) F w
+  let t (u : w.Completionˣ) : ℝ := ‖u.val‖ ^ w.mult
+  have ht : Continuous t := (continuous_norm.comp Units.continuous_val).pow _
+  have ht_norm (u : w.Completionˣ) :
+      N(IdeleClassGroup.ofCompletion (𝓞 F) F w u) = t u := by
+    rw [ideleClassNorm_ofCompletion, Units.val_pow_eq_pow_val, NNReal.coe_pow]
+    rfl
+  obtain ⟨hh, -, -, ε, -, hε⟩ := _hA
+  obtain ⟨hhc, hhK, hhS, -⟩ := hh n
+  obtain ⟨-, hρc, -, hρS, -⟩ := hε n
+  obtain ⟨B, hB⟩ := hhK.bddAbove
+  let K := t ⁻¹' tsupport (h n)
+  have hK_closed : IsClosed K := (isClosed_tsupport _).preimage ht
+  have hK_norm (u : w.Completionˣ) (hu : u ∈ K) : 1 < t u := hhS hu
+  have hK : IsCompact K := by
+    let S : Set w.Completion := (fun u : w.Completion ↦ ‖u‖ ^ w.mult) ⁻¹' tsupport (h n)
+    have hS1 {u : w.Completion} (hu : u ∈ S) : 1 < ‖u‖ ^ w.mult := hhS hu
+    have hScompact : IsCompact S := by
+      have he := InfinitePlace.Completion.isometry_extensionEmbedding w
+      have hball : IsCompact (Metric.closedBall (0 : w.Completion) B) := by
+        simpa only [← he.preimage_closedBall] using he.isClosedEmbedding.isCompact_preimage
+          (isCompact_closedBall (InfinitePlace.Completion.extensionEmbedding w 0) B)
+      refine hball.of_isClosed_subset ((isClosed_tsupport _).preimage (continuous_norm.pow _)) ?_
+      intro u hu
+      rw [mem_closedBall_zero_iff]
+      have hnorm : 1 ≤ ‖u‖ := by
+        by_contra! h
+        exact (not_lt_of_ge (pow_le_one₀ (norm_nonneg _) h.le)) (hS1 hu)
+      exact (le_self_pow₀ hnorm w.mult_ne_zero).trans (hB hu)
+    refine Units.isEmbedding_val₀.isInducing.isCompact_preimage' hScompact ?_
+    intro u hu
+    have hne : u ≠ 0 := by
+      intro hzero
+      have h := hS1 hu
+      rw [hzero, norm_zero, zero_pow w.mult_ne_zero] at h
+      exact (not_lt_of_ge zero_le_one) h
+    exact ⟨Units.mk0 u hne, rfl⟩
+  let a (u : w.Completionˣ) : ℂ :=
+    star (χ (localClass u) : ℂ) * (h n (t u) : ℂ) *
+      (Real.sqrt (t u) : ℂ) / ((‖1 - u.val‖ ^ w.mult : ℝ) : ℂ)
+  have hzero (u : w.Completionˣ) (hu : u ∉ K) : a u = 0 := by
+    have hh0 : h n (t u) = 0 := image_eq_zero_of_notMem_tsupport hu
+    simp [a, hh0]
+  have hχ : Continuous (fun u : w.Completionˣ ↦ (χ (localClass u) : ℂ)) :=
+    continuous_subtype_val.comp (χ.continuous.comp (continuous_ideleClass_ofCompletion F w))
+  have hden : Continuous (fun u : w.Completionˣ ↦ ((‖1 - u.val‖ ^ w.mult : ℝ) : ℂ)) :=
+    Complex.continuous_ofReal.comp
+      ((continuous_norm.comp (continuous_const.sub Units.continuous_val)).pow _)
+  have ha : Measurable a :=
+    ((hχ.star.measurable.mul ((hhc.continuous.comp ht).measurable.complex_ofReal)).mul
+      ((Real.continuous_sqrt.comp ht).measurable.complex_ofReal)).div hden.measurable
+  have hai : Integrable a μ := by
+    have hac : ContinuousOn a K := by
+      apply ContinuousOn.div
+      · exact ((hχ.star.mul (Complex.continuous_ofReal.comp (hhc.continuous.comp ht))).mul
+          (Complex.continuous_ofReal.comp (Real.continuous_sqrt.comp ht))).continuousOn
+      · exact hden.continuousOn
+      · intro u hu
+        apply Complex.ofReal_ne_zero.mpr
+        apply pow_ne_zero
+        rw [norm_ne_zero_iff, sub_ne_zero]
+        intro he
+        have hone : t u = 1 := by simp [t, ← he]
+        exact (ne_of_gt (hK_norm u hu)) hone
+    refine ((hac.integrableOn_compact hK).integrable_indicator hK_closed.measurableSet).congr ?_
+    refine ae_of_all _ fun u ↦ ?_
+    by_cases hu : u ∈ K
+    · exact indicator_of_mem hu _
+    · rw [indicator_of_notMem hu, hzero u hu]
+  have hρi : Integrable (ρ n) := hρc.continuous.integrable_of_hasCompactSupport
+    (isCompact_Icc.of_isClosed_subset (isClosed_tsupport _) hρS)
+  have hd := introTraceApprox_archimedean_differentiable_integral μ a t (ρ n)
+    ha ht.measurable hρc.continuous.measurable hai hρi B (ε n)
+    (fun u hu ↦ hB (show u ∈ K from not_not.mp (mt (hzero u) hu)))
+    (fun x hx ↦ (hρS (subset_tsupport _ hx)).1)
+  unfold introTraceArchimedean
+  refine (differentiable_const _).mul ?_
+  convert hd using 1
+  ext1 z
+  apply integral_congr_ae
+  refine ae_of_all _ fun u ↦ ?_
+  simp only [introTraceTest, introTraceApprox, ht_norm, a, t]
+  ring
 
 /-- Paper: §1.4.3, p. 29. For the trivial rational character at parameter two,
 the real-place term goes to positive infinity as the cutoffs are removed.
